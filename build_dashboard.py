@@ -59,7 +59,7 @@ h3 { font-size: 12px; margin: 0 0 8px 0; font-weight: 600; color: #525252; text-
 .error-banner.visible { display: block; }
 .error-banner pre { font-size: 11px; margin: 4px 0 0; padding: 6px 8px; background: rgba(255,255,255,0.5); border-radius: 4px; overflow-x: auto; max-height: 100px; }
 
-.kpi-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin: 8px 0 16px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; margin: 8px 0 16px; }
 .kpi { background: white; border-radius: 8px; padding: 12px 14px; border: 1px solid #e5e5e5; }
 .kpi .label { font-size: 10px; color: #737373; text-transform: uppercase; letter-spacing: 0.05em; }
 .kpi .value { font-size: 20px; font-weight: 700; margin-top: 3px; letter-spacing: -0.02em; }
@@ -233,6 +233,7 @@ table.metrics tfoot tr { background: #fafafa; font-weight: 700; }
           <th class="r">CTR</th>
           <th class="r">Creatives</th>
           <th class="r">≤₹300</th>
+          <th class="r">Win Rate</th>
         </tr></thead>
         <tbody></tbody>
         <tfoot></tfoot>
@@ -319,7 +320,7 @@ table.metrics tfoot tr { background: #fafafa; font-weight: 700; }
       <table class="metrics" id="theme-table">
         <thead><tr>
           <th>Category</th>
-          <th class="r">Ads</th><th class="r">≤₹300</th>
+          <th class="r">Ads</th><th class="r">≤₹300</th><th class="r">Win Rate</th>
           <th class="r">Spend</th><th class="r">Spend %</th>
           <th class="r">Purchases</th><th class="r">Installs</th><th class="r">Clicks</th>
           <th class="r">C2I %</th><th class="r">Pay %</th>
@@ -335,7 +336,7 @@ table.metrics tfoot tr { background: #fafafa; font-weight: 700; }
       <table class="metrics" id="subtheme-table">
         <thead><tr>
           <th>Sub-theme</th>
-          <th class="r">Ads</th><th class="r">AI/Human mix</th><th class="r">≤₹300</th>
+          <th class="r">Ads</th><th class="r">AI/Human mix</th><th class="r">≤₹300</th><th class="r">Win Rate</th>
           <th class="r">Spend</th><th class="r">Spend %</th>
           <th class="r">Purchases</th><th class="r">Installs</th><th class="r">Clicks</th>
           <th class="r">C2I %</th><th class="r">Pay %</th>
@@ -378,6 +379,11 @@ table.metrics tfoot tr { background: #fafafa; font-weight: 700; }
           <option value="300_500">₹300–500</option>
           <option value="over500">Over ₹500</option>
           <option value="no_purchase">No purchase</option>
+        </select>
+        <label>Status:</label><select id="ad-status-filter">
+          <option value="">All</option>
+          <option value="ACTIVE">Live</option>
+          <option value="PAUSED">Not live</option>
         </select>
         <label>Min spend ₹:</label><input id="ad-min-spend" type="number" value="0" step="500" style="width:90px;">
         <button class="btn" id="ad-apply">Apply filters</button>
@@ -505,8 +511,18 @@ function classifyAd(a) {
   const cls = classify(a.n);
   return Object.assign({}, a, {tt: cls.top, st: cls.sub, subs: cls.subs});
 }
+// Build lookup from ads_created for start date + live status
+const _createdMap = {};
+(SNAPSHOT_RAW.ads_created || []).forEach(ac => { _createdMap[ac.id] = ac; });
+
 const SNAPSHOT = Object.assign({}, SNAPSHOT_RAW, {
-  ads: (SNAPSHOT_RAW.ads || []).map(classifyAd),
+  ads: (SNAPSHOT_RAW.ads || []).map(a => {
+    const ad = classifyAd(a);
+    const cr = _createdMap[a.id];
+    ad.cd = cr ? cr.cd : null;
+    ad.status = cr ? cr.status : 'UNKNOWN';
+    return ad;
+  }),
   ad_weekly: (SNAPSHOT_RAW.ad_weekly || []).map(classifyAd),
   ads_created: (SNAPSHOT_RAW.ads_created || []).map(a => {
     const cls = classify(a.n);
@@ -735,6 +751,8 @@ function computeTrendSummary(trendRows) {
 
 function renderKPIs(summary, periodLabel) {
   const periodSub = periodLabel || 'Selected period';
+  const winCount = CURRENT_ADS.filter(a => a.cac != null && a.cac <= 300).length;
+  const winRate = CURRENT_ADS.length > 0 ? (100 * winCount / CURRENT_ADS.length).toFixed(1) + '%' : '—';
   const kpis = [
     {label:'Spend', value:fINR(summary.total_spend), sub:periodSub},
     {label:'Purchases', value:fNum(summary.total_purchases), sub:'Meta-reported'},
@@ -743,7 +761,9 @@ function renderKPIs(summary, periodLabel) {
     {label:'CAC', value:fINR(summary.overall_cac), sub:'Target ≤ ₹300',
      cls: summary.overall_cac==null?'':(summary.overall_cac<=300?'target-ok':(summary.overall_cac<=400?'target-warn':'target-bad'))},
     {label:'CPI', value:fINR(summary.overall_cpi), sub:'Spend ÷ installs'},
-    {label:'Creatives (30d)', value:fNum(DATA.ads ? DATA.ads.length : 0), sub:'Full snapshot'}
+    {label:'Win Rate', value:winRate, sub:winCount+'/'+CURRENT_ADS.length+' ≤₹300',
+     cls: parseFloat(winRate)>=30?'target-ok':(parseFloat(winRate)>=15?'target-warn':'target-bad')},
+    {label:'Creatives', value:fNum(CURRENT_ADS.length), sub:'Active period'}
   ];
   document.getElementById('kpi-strip').innerHTML = kpis.map(k =>
     `<div class="kpi ${k.cls||''}"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub">${k.sub}</div></div>`
@@ -769,6 +789,7 @@ function renderLanguageTable(langs, summary) {
     <td class="r">${L.ctr ? L.ctr.toFixed(2)+'%' : '—'}</td>
     <td class="r">${L.ads}</td>
     <td class="r">${L.ads_under_300_cac}</td>
+    <td class="r">${L.ads > 0 ? (100*L.ads_under_300_cac/L.ads).toFixed(1)+'%' : '—'}</td>
   </tr>`).join('');
   tfoot.innerHTML = `<tr>
     <td>TOTAL</td>
@@ -784,6 +805,7 @@ function renderLanguageTable(langs, summary) {
     <td class="r">${summary.overall_ctr ? summary.overall_ctr.toFixed(2)+'%' : '—'}</td>
     <td class="r">${summary.total_ads}</td>
     <td class="r">${langs.reduce((s,L)=>s+L.ads_under_300_cac,0)}</td>
+    <td class="r">${summary.total_ads > 0 ? (100*langs.reduce((s,L)=>s+L.ads_under_300_cac,0)/summary.total_ads).toFixed(1)+'%' : '—'}</td>
   </tr>`;
 }
 
@@ -900,10 +922,12 @@ function renderThemes(adsAll, summaryAll) {
 
   function row(label, x, depth, bgClass) {
     const cls = depth === 0 ? bgClass : ('indent-' + depth);
+    const wr = x.ads > 0 ? (100*x.ads_under_300/x.ads).toFixed(1)+'%' : '—';
     return `<tr class="${cls}">
       <td>${label}</td>
       <td class="r">${fNum(x.ads)}</td>
       <td class="r">${fNum(x.ads_under_300)}</td>
+      <td class="r">${wr}</td>
       <td class="r">${fINR(x.spend)}</td>
       <td class="r">${fPctOf(x.spend, totalSpend)}</td>
       <td class="r">${fNum(x.purchases)}</td>
@@ -932,6 +956,7 @@ function renderThemes(adsAll, summaryAll) {
     <td class="r">${fNum(s.ads)}</td>
     <td class="r"><span class="cell bg-purple">${s.ai_ads} AI</span> / <span class="cell bg-cyan">${s.human_ads} H</span></td>
     <td class="r">${fNum(s.ads_under_300)}</td>
+    <td class="r">${s.ads > 0 ? (100*s.ads_under_300/s.ads).toFixed(1)+'%' : '—'}</td>
     <td class="r">${fINR(s.spend)}</td>
     <td class="r">${fPctOf(s.spend, totalSpend)}</td>
     <td class="r">${fNum(s.purchases)}</td>
@@ -1141,7 +1166,7 @@ function renderDeepDive() {
     return `<div class="deep-dive-card">
       <div class="header">
         <h3>${L}</h3>
-        <div class="stats">Spend ${fINR(ls.spend)} · Purch ${fNum(ls.purchases)} · CAC ${fINR(ls.cac)} · CPI ${fINR(ls.cpi)} · Pay % ${fPct(ls.pay)} · C2I % ${fPct(ls.c2i)}</div>
+        <div class="stats">Spend ${fINR(ls.spend)} · Purch ${fNum(ls.purchases)} · CAC ${fINR(ls.cac)} · CPI ${fINR(ls.cpi)} · Pay % ${fPct(ls.pay)} · C2I % ${fPct(ls.c2i)} · Win ${ls.ads > 0 ? (100*ls.ads_under_300_cac/ls.ads).toFixed(1)+'%' : '—'}</div>
       </div>
       <div class="chart-grid">
         <div class="chart-cell"><h3>CAC trend</h3><div class="chart-wrap"><canvas id="dd-cac-${idBase}"></canvas></div></div>
@@ -1185,7 +1210,7 @@ let adGrid = null;
 let adFiltersWired = false;  // wire event handlers only once across renders
 
 // Filter state (preserved across renders so date changes don't wipe selection)
-const AD_FILTER = {lang:'', top:'', sub:'', subTheme:'', cacBand:'', minSpend: 0};
+const AD_FILTER = {lang:'', top:'', sub:'', subTheme:'', cacBand:'', minSpend: 0, status: ''};
 
 function adsTableRows(summary) {
   const baseCpi = summary.overall_cpi, basePay = summary.overall_pay, baseC2i = summary.overall_c2i;
@@ -1194,6 +1219,10 @@ function adsTableRows(summary) {
     if (AD_FILTER.top && a.tt !== AD_FILTER.top) return false;
     if (AD_FILTER.sub && a.st !== AD_FILTER.sub) return false;
     if (AD_FILTER.subTheme && !a.subs.includes(AD_FILTER.subTheme)) return false;
+    if (AD_FILTER.status) {
+      if (AD_FILTER.status === 'ACTIVE' && a.status !== 'ACTIVE') return false;
+      if (AD_FILTER.status === 'PAUSED' && a.status !== 'PAUSED' && a.status !== 'CAMPAIGN_PAUSED') return false;
+    }
     if (a.s < AD_FILTER.minSpend) return false;
     if (AD_FILTER.cacBand === 'under300') return a.cac != null && a.cac <= 300;
     if (AD_FILTER.cacBand === '300_500') return a.cac != null && a.cac > 300 && a.cac <= 500;
@@ -1206,33 +1235,43 @@ function adsTableRows(summary) {
 function drawAdsGrid(summary) {
   const baseCpi = summary.overall_cpi, basePay = summary.overall_pay, baseC2i = summary.overall_c2i;
   const filtered = adsTableRows(summary);
-  document.getElementById('ad-count').textContent = filtered.length + ' creatives · ' + fINR(filtered.reduce((s,a)=>s+a.s,0)) + ' spend';
+  const winCount = filtered.filter(a => a.cac != null && a.cac <= 300).length;
+  const winRate = filtered.length > 0 ? (100 * winCount / filtered.length).toFixed(1) : '0.0';
+  document.getElementById('ad-count').textContent = filtered.length + ' creatives · ' + fINR(filtered.reduce((s,a)=>s+a.s,0)) + ' spend · Win rate: ' + winRate + '% (' + winCount + '/' + filtered.length + ')';
   const rows = filtered.map(a => {
     const c2i = a.cl ? 100*a.i/a.cl : null;
     const pay = a.i ? 100*a.pu/a.i : null;
+    const isLive = a.status === 'ACTIVE';
     return [a.n, a.l.replace(/ \(.*\)/,''), a.tt, a.st || '—', a.subs.join(', '),
+      a.cd || '—', isLive ? 'Live' : 'Off',
       a.s, a.pu, a.i, c2i, pay, a.cac, a.cpi];
   });
-  const adTableEl = document.getElementById('ad-table');
-  adTableEl.innerHTML = '';  // Grid.js v5 has no destroy()
-  adGrid = new gridjs.Grid({
-    columns: [
-      {name:'Creative name', width:'24%'},
-      {name:'Lang', width:'5%'},
-      {name:'Top', width:'7%', formatter: v => gridjs.html(`<span class="cell ${v==='AI'?'bg-purple':(v==='Human'?'bg-cyan':'bg-statics')}">${v}</span>`)},
-      {name:'Bucket', width:'9%'},
-      {name:'Sub-themes', width:'13%'},
-      {name:'Spend', width:'7%', formatter:v=>fINR(v), sort:{compare:(a,b)=>a-b}},
-      {name:'Purch', width:'5%', formatter:v=>fNum(v), sort:{compare:(a,b)=>a-b}},
-      {name:'Installs', width:'6%', formatter:v=>fNum(v), sort:{compare:(a,b)=>a-b}},
-      {name:'C2I %', width:'6%', formatter:v=>v==null?gridjs.html('<span class="cell bg-grey">—</span>'):gridjs.html(`<span class="${cellClass(v, baseC2i, 'c2i')}">${fPct(v)}</span>`), sort:{compare:(a,b)=>(a||-1)-(b||-1)}},
-      {name:'Pay %', width:'6%', formatter:v=>v==null?gridjs.html('<span class="cell bg-grey">—</span>'):gridjs.html(`<span class="${cellClass(v, basePay, 'pay')}">${fPct(v)}</span>`), sort:{compare:(a,b)=>(a||-1)-(b||-1)}},
-      {name:'CAC', width:'7%', formatter:v=>v==null?gridjs.html('<span class="cell bg-grey">—</span>'):gridjs.html(`<span class="${cellClass(v, null, 'cac')}">${fINR(v)}</span>`), sort:{compare:(a,b)=>(a||1e9)-(b||1e9)}},
-      {name:'CPI', width:'6%', formatter:v=>v==null?gridjs.html('<span class="cell bg-grey">—</span>'):gridjs.html(`<span class="${cellClass(v, baseCpi, 'cpi')}">${fINR(v)}</span>`), sort:{compare:(a,b)=>(a||1e9)-(b||1e9)}}
-    ],
-    data: rows, pagination: {limit:25, summary:true}, sort:true, search:true,
-    style: {table: {'font-size': '12px'}}
-  }).render(adTableEl);
+  const columns = [
+    {name:'Creative name', width:'20%'},
+    {name:'Lang', width:'5%'},
+    {name:'Top', width:'5%', formatter: v => gridjs.html(`<span class="cell ${v==='AI'?'bg-purple':(v==='Human'?'bg-cyan':'bg-statics')}">${v}</span>`)},
+    {name:'Bucket', width:'7%'},
+    {name:'Sub-themes', width:'10%'},
+    {name:'Started', width:'7%', sort:{compare:(a,b)=>a<b?-1:a>b?1:0}},
+    {name:'Status', width:'4%', formatter: v => gridjs.html(v==='Live'?'<span class="cell bg-green">● Live</span>':'<span class="cell bg-grey">○ Off</span>')},
+    {name:'Spend', width:'6%', formatter:v=>fINR(v), sort:{compare:(a,b)=>a-b}},
+    {name:'Purch', width:'5%', formatter:v=>fNum(v), sort:{compare:(a,b)=>a-b}},
+    {name:'Installs', width:'5%', formatter:v=>fNum(v), sort:{compare:(a,b)=>a-b}},
+    {name:'C2I %', width:'5%', formatter:v=>v==null?gridjs.html('<span class="cell bg-grey">—</span>'):gridjs.html(`<span class="${cellClass(v, baseC2i, 'c2i')}">${fPct(v)}</span>`), sort:{compare:(a,b)=>(a||-1)-(b||-1)}},
+    {name:'Pay %', width:'5%', formatter:v=>v==null?gridjs.html('<span class="cell bg-grey">—</span>'):gridjs.html(`<span class="${cellClass(v, basePay, 'pay')}">${fPct(v)}</span>`), sort:{compare:(a,b)=>(a||-1)-(b||-1)}},
+    {name:'CAC', width:'6%', formatter:v=>v==null?gridjs.html('<span class="cell bg-grey">—</span>'):gridjs.html(`<span class="${cellClass(v, null, 'cac')}">${fINR(v)}</span>`), sort:{compare:(a,b)=>(a||1e9)-(b||1e9)}},
+    {name:'CPI', width:'5%', formatter:v=>v==null?gridjs.html('<span class="cell bg-grey">—</span>'):gridjs.html(`<span class="${cellClass(v, baseCpi, 'cpi')}">${fINR(v)}</span>`), sort:{compare:(a,b)=>(a||1e9)-(b||1e9)}}
+  ];
+  if (adGrid) {
+    adGrid.updateConfig({data: rows, columns: columns}).forceRender();
+  } else {
+    const adTableEl = document.getElementById('ad-table');
+    adGrid = new gridjs.Grid({
+      columns: columns,
+      data: rows, pagination: {limit:25, summary:true}, sort:true, search:true,
+      style: {table: {'font-size': '12px'}}
+    }).render(adTableEl);
+  }
 }
 
 function renderAdsTable(summary) {
@@ -1241,10 +1280,9 @@ function renderAdsTable(summary) {
   const subSel = document.getElementById('ad-sub-filter');
   const subThemeSel = document.getElementById('ad-subtheme-filter');
   const cacSel = document.getElementById('ad-cac-filter');
+  const statusSel = document.getElementById('ad-status-filter');
   const minSpend = document.getElementById('ad-min-spend');
 
-  // Populate language + sub-theme dropdowns based on CURRENT_ADS, but ONLY if missing
-  // (preserves user's selection across renders).
   const existingLangs = new Set([...langSel.options].map(o => o.value));
   [...new Set(CURRENT_ADS.map(a=>a.l))].sort().forEach(L => {
     if (!existingLangs.has(L)) {
@@ -1257,15 +1295,14 @@ function renderAdsTable(summary) {
       const o = document.createElement('option'); o.value = T; o.textContent = T; subThemeSel.appendChild(o);
     }
   });
-  // Restore filter state into UI
   langSel.value = AD_FILTER.lang || '';
   topSel.value = AD_FILTER.top || '';
   subSel.value = AD_FILTER.sub || '';
   subThemeSel.value = AD_FILTER.subTheme || '';
   cacSel.value = AD_FILTER.cacBand || '';
+  statusSel.value = AD_FILTER.status || '';
   minSpend.value = AD_FILTER.minSpend || 0;
 
-  // Wire Apply / Reset once
   if (!adFiltersWired) {
     document.getElementById('ad-apply').onclick = () => {
       AD_FILTER.lang = langSel.value;
@@ -1273,14 +1310,17 @@ function renderAdsTable(summary) {
       AD_FILTER.sub = subSel.value;
       AD_FILTER.subTheme = subThemeSel.value;
       AD_FILTER.cacBand = cacSel.value;
+      AD_FILTER.status = statusSel.value;
       AD_FILTER.minSpend = parseFloat(minSpend.value) || 0;
       drawAdsGrid(CURRENT_SUMMARY);
     };
     document.getElementById('ad-reset').onclick = () => {
       AD_FILTER.lang = ''; AD_FILTER.top = ''; AD_FILTER.sub = '';
       AD_FILTER.subTheme = ''; AD_FILTER.cacBand = ''; AD_FILTER.minSpend = 0;
+      AD_FILTER.status = '';
       langSel.value = ''; topSel.value = ''; subSel.value = '';
       subThemeSel.value = ''; cacSel.value = ''; minSpend.value = 0;
+      statusSel.value = '';
       drawAdsGrid(CURRENT_SUMMARY);
     };
     adFiltersWired = true;
@@ -1304,7 +1344,7 @@ function renderInsights(langs, summary) {
   const insights = [
     {cls: bestLang && bestLang.cac<=300?'good':'warn',
      title: bestLang ? `Best language: ${bestLang.language} — CAC ${fINR(bestLang.cac)} · Pay % ${fPct(bestLang.pay)} · C2I % ${fPct(bestLang.c2i)}` : 'No language data',
-     desc: bestLang ? `${fNum(bestLang.purchases)} purchases on ${fINR(bestLang.spend)}. ${bestLang.ads_under_300_cac}/${bestLang.ads} creatives under target.` : ''},
+     desc: bestLang ? `${fNum(bestLang.purchases)} purchases on ${fINR(bestLang.spend)}. Win rate: ${bestLang.ads > 0 ? (100*bestLang.ads_under_300_cac/bestLang.ads).toFixed(1) : 0}% (${bestLang.ads_under_300_cac}/${bestLang.ads}).` : ''},
     {cls: 'bad',
      title: worstLang ? `Worst language: ${worstLang.language} — CAC ${fINR(worstLang.cac)} · Pay % ${fPct(worstLang.pay)}` : '',
      desc: worstLang ? `${fNum(worstLang.purchases)} purchases, ${fINR(worstLang.spend)}.` : ''},
@@ -1319,7 +1359,15 @@ function renderInsights(langs, summary) {
     bottomAd ? {cls:'bad', title: `Worst spender: "${bottomAd.n}"`, desc: `${bottomAd.l} · ${bottomAd.tt}${bottomAd.st?'/'+bottomAd.st:''} · spend ${fINR(bottomAd.s)} · ${bottomAd.pu} purchases · CAC ${fINR(bottomAd.cac)}`} : null,
     {cls:'good',
      title: `${scalers.length} creatives scaling under target (spend > ₹20k, CAC ≤ ₹300)`,
-     desc: scalers.slice(0,6).map(a => `• ${a.n} — ${a.l.replace(/ \(.*\)/,'')} · ${a.tt}${a.st?'/'+a.st:''} · ${fINR(a.s)} · CAC ${fINR(a.cac)}`).join('<br>')}
+     desc: scalers.slice(0,6).map(a => `• ${a.n} — ${a.l.replace(/ \(.*\)/,'')} · ${a.tt}${a.st?'/'+a.st:''} · ${fINR(a.s)} · CAC ${fINR(a.cac)}`).join('<br>')},
+    (() => {
+      const total = CURRENT_ADS.length;
+      const wins = CURRENT_ADS.filter(a => a.cac != null && a.cac <= 300).length;
+      const wr = total > 0 ? (100*wins/total).toFixed(1) : 0;
+      return {cls: wr >= 25 ? 'good' : (wr >= 10 ? 'warn' : 'bad'),
+        title: `Overall Win Rate: ${wr}% (${wins} of ${total} creatives with CAC ≤ ₹300)`,
+        desc: `By type: AI ${(() => { const ai = CURRENT_ADS.filter(a=>a.tt==='AI'); const aiW = ai.filter(a=>a.cac!=null&&a.cac<=300).length; return ai.length?((100*aiW/ai.length).toFixed(1)+'% ('+aiW+'/'+ai.length+')'):'—'; })()} · Human ${(() => { const h = CURRENT_ADS.filter(a=>a.tt==='Human'); const hW = h.filter(a=>a.cac!=null&&a.cac<=300).length; return h.length?((100*hW/h.length).toFixed(1)+'% ('+hW+'/'+h.length+')'):'—'; })()}`};
+    })()
   ].filter(Boolean);
   c.innerHTML = insights.map(i => `<div class="insight-card ${i.cls}"><div class="marker"></div><div><div class="title">${i.title}</div><div class="desc">${i.desc}</div></div></div>`).join('');
 }
