@@ -1,0 +1,16 @@
+.DS_Store
+__pycache__/
+*.pyc
+.claude/
+daily_raw.json
+ads_raw.json
+ads_created_raw.json
+
+# Intermediate data files (not needed for dashboard)
+ad_weekly_compact.json
+ad_weekly_spend.json
+ads_created_compact.json
+ads_with_created.json
+superflow_ads.json
+superflow_daily.json
+superflow_processed.json
