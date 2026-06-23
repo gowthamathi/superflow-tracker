@@ -1580,6 +1580,7 @@ window.getAdsForDateRange = getAdsForDateRange;
 """
 
 html = TEMPLATE.replace('__SNAPSHOT__', slim_str)
-with open(os.path.join(BASE_DIR, 'superflow_dashboard.html'), 'w') as f:
-    f.write(html)
-print(f'Wrote {len(html):,} bytes to superflow_dashboard.html')
+for fname in ['superflow_dashboard.html', 'index.html']:
+    with open(os.path.join(BASE_DIR, fname), 'w') as f:
+        f.write(html)
+print(f'Wrote {len(html):,} bytes to superflow_dashboard.html + index.html')
