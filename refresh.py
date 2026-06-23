@@ -2,13 +2,16 @@
 Reads yesterday's raw API data (saved by the scheduled agent), merges with
 the cached superflow_compact.json, and rebuilds the dashboard HTML.
 
+Data is ACCUMULATED — older days are never removed. The timeline grows with
+each refresh (e.g. May 24 → Jun 22 becomes May 24 → Jun 23 the next day).
+
 Usage:
     python3 refresh.py                    # auto-detects yesterday
     python3 refresh.py 2026-06-22         # explicit date
 
 Expected input files (written by the scheduled agent before calling this):
-    daily_raw.json      — account-level insights for yesterday, level=campaign, time_increment=1
-    ads_raw.json        — ad-level insights for last 30d (rolling window)
+    daily_raw.json       — campaign-level insights for yesterday (time_increment=1)
+    ads_raw.json         — ad-level insights for yesterday only (1 day, to accumulate)
     ads_created_raw.json — newly created ads (from get_ads_by_adaccount)
 """
 import json
@@ -152,10 +155,7 @@ def main():
                     "cpi": round(s / i, 2) if i > 0 else None,
                 })
 
-        # Keep only last 30 days of trend data
         data["trend_account"].sort(key=lambda r: r["date"])
-        if len(data["trend_account"]) > 30:
-            data["trend_account"] = data["trend_account"][-30:]
 
         # Per-language trends
         if "trend_by_language" not in data:
@@ -180,22 +180,23 @@ def main():
                 else:
                     data["trend_by_language"][lang].append(row)
             data["trend_by_language"][lang].sort(key=lambda r: r["date"])
-            if len(data["trend_by_language"][lang]) > 30:
-                data["trend_by_language"][lang] = data["trend_by_language"][lang][-30:]
 
         print(f"  Trends updated: {len(day_total)} day(s), {len(day_by_lang)} language(s)")
     else:
         print("  No daily_raw.json — skipping trend update")
 
-    # ── 2. Update ads (rolling 30d ad-level totals) ─────────────────────
+    # ── 2. Update ads (accumulate yesterday's per-ad spend onto totals) ──
     ads_raw_path = os.path.join(BASE, "ads_raw.json")
     if os.path.exists(ads_raw_path):
         ads_raw = load_json(ads_raw_path)
         if isinstance(ads_raw, dict) and "data" in ads_raw:
             ads_raw = ads_raw["data"]
 
-        new_ads = []
+        existing_by_id = {a["id"]: a for a in data.get("ads", [])}
+        updated = 0
+        added = 0
         for a in ads_raw:
+            aid = a.get("ad_id", "")
             name = a.get("ad_name", "")
             campaign = a.get("campaign_name", "")
             lang = parse_lang(campaign)
@@ -206,26 +207,30 @@ def main():
             installs = extract_actions(a.get("actions"), "mobile_app_install")
             impressions = float(a.get("impressions", 0))
             clicks = float(a.get("clicks", 0))
-            new_ads.append({
-                "id": a.get("ad_id", ""),
-                "n": name,
-                "c": campaign,
-                "l": lang,
-                "p": price,
-                "s": round(spend, 2),
-                "pu": int(purchases),
-                "i": int(installs),
-                "im": int(impressions),
-                "cl": int(clicks),
-                "cac": round(spend / purchases, 2) if purchases > 0 else None,
-                "cpi": round(spend / installs, 2) if installs > 0 else None,
-                "ctr": round(clicks / impressions * 100, 3) if impressions > 0 else None,
-                "tt": top,
-                "st": sub,
-                "subs": subs,
-            })
-        data["ads"] = new_ads
-        print(f"  Ads updated: {len(new_ads)} creatives")
+
+            if aid in existing_by_id:
+                ad = existing_by_id[aid]
+                ad["s"] = round(ad["s"] + spend, 2)
+                ad["pu"] += int(purchases)
+                ad["i"] += int(installs)
+                ad["im"] += int(impressions)
+                ad["cl"] += int(clicks)
+                ad["cac"] = round(ad["s"] / ad["pu"], 2) if ad["pu"] > 0 else None
+                ad["cpi"] = round(ad["s"] / ad["i"], 2) if ad["i"] > 0 else None
+                ad["ctr"] = round(ad["cl"] / ad["im"] * 100, 3) if ad["im"] > 0 else None
+                updated += 1
+            else:
+                data["ads"].append({
+                    "id": aid, "n": name, "c": campaign, "l": lang, "p": price,
+                    "s": round(spend, 2), "pu": int(purchases), "i": int(installs),
+                    "im": int(impressions), "cl": int(clicks),
+                    "cac": round(spend / purchases, 2) if purchases > 0 else None,
+                    "cpi": round(spend / installs, 2) if installs > 0 else None,
+                    "ctr": round(clicks / impressions * 100, 3) if impressions > 0 else None,
+                    "tt": top, "st": sub, "subs": subs,
+                })
+                added += 1
+        print(f"  Ads: {updated} updated, {added} new, {len(data['ads'])} total")
     else:
         print("  No ads_raw.json — keeping cached ads")
 
