@@ -39,6 +39,7 @@ AI_FX_KEYWORDS = [
     "lightning", "blackhole", "black hole", "trex", "t-rex",
     "energy burst", "energy", "steamroller", "hydraulic", "nitrogen",
     "cosmic", "404", "chalkboard", "cursor trash", "camerazoom",
+    "thanos", "roadroller", "blowtorch", "chainsaw",
 ]
 
 def parse_lang(campaign_name):
@@ -55,6 +56,8 @@ def is_ai(name):
         return True
     if "translated" in n:
         return True
+    if "- sf -" in n:
+        return True
     return any(kw in n for kw in AI_FX_KEYWORDS)
 
 def classify(name):
@@ -69,7 +72,17 @@ def classify(name):
             sub = "In-house"
     subs = []
     pi_kw = AI_FX_KEYWORDS + ["bulldozer", "tank", "pattern interrupt", "pattern-interrupt"]
-    if any(k in n for k in pi_kw): subs.append("Pattern Interrupt")
+    is_pi = any(k in n for k in pi_kw)
+    if is_pi:
+        subs.append("Pattern Interrupt")
+        if "phone" in n:
+            subs.append("PI: Phone FX")
+        elif "keyboard" in n or "kbh" in n:
+            subs.append("PI: Keyboard FX")
+        elif any(k in n for k in ["bulldozer", "tank", "steamroller", "hydraulic", "trex", "t-rex"]):
+            subs.append("PI: Vehicle/Heavy FX")
+        else:
+            subs.append("PI: Other FX")
     if "bhumi" in n: subs.append("Bhumi Replication")
     if "how to say this" in n: subs.append("How-to-say-this")
     if any(k in n for k in ["wa chat", "whatsapp", "wp chat"]): subs.append("WhatsApp Chat")

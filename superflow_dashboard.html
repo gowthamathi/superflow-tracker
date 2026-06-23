@@ -390,7 +390,7 @@ const LANG_COLORS = {
   'Kannada (KA)':'#65a30d','Bengali (BN)':'#dc2626','Marathi (MT)':'#ea580c',
   'Tamil (TN)':'#a855f7','Gujarati (GT)':'#db2777','Other':'#737373'
 };
-const AI_FX_KEYWORDS = ["kbh","tractor beam","red marker","phone axe"," axe","keyboard hammer"," hammer","wrecking","drill","pyro","lightning","blackhole","black hole","trex","t-rex","energy burst"," energy","steamroller","hydraulic","nitrogen","cosmic"," 404","chalkboard","cursor trash","camerazoom"];
+const AI_FX_KEYWORDS = ["kbh","tractor beam","red marker","phone axe"," axe","keyboard hammer"," hammer","wrecking","drill","pyro","lightning","blackhole","black hole","trex","t-rex","energy burst"," energy","steamroller","hydraulic","nitrogen","cosmic"," 404","chalkboard","cursor trash","camerazoom","thanos","roadroller","blowtorch","chainsaw"];
 // Pattern Interrupt tokens: anything with these → AI top-level (PI ads are AI per user rule)
 const PI_TOKENS = ["pattern interrupt","pattern-interrupt","bulldozer","tank"];
 const CAMPAIGN_ID_TO_LANG = {
@@ -433,6 +433,8 @@ function isAI(name) {
   if (hasWordToken(name, ['ai'])) return true;
   // "translated" anywhere
   if (n.includes('translated')) return true;
+  // "- SF -" naming convention (newer AI creatives)
+  if (/- sf -/i.test(name)) return true;
   // FX keyword names (these are all AI b-roll effects)
   for (const k of AI_FX_KEYWORDS) if (n.includes(k)) return true;
   // Pattern Interrupt variants (user explicit rule: all PI ads are AI)
@@ -455,10 +457,15 @@ function classify(name) {
 
   // Sub-themes (independent multi-tags)
   const subs = [];
-  // Pattern Interrupt sub-theme: PI tokens + FX keywords (these are visually pattern-interrupting)
-  if (PI_TOKENS.some(k => n.includes(k))) subs.push('Pattern Interrupt');
-  else if (hasWordToken(name, ['pi', 'pai'])) subs.push('Pattern Interrupt');
-  else if (AI_FX_KEYWORDS.some(k => n.includes(k))) subs.push('Pattern Interrupt');
+  // Pattern Interrupt detection + sub-categories
+  const isPI = PI_TOKENS.some(k => n.includes(k)) || hasWordToken(name, ['pi', 'pai']) || AI_FX_KEYWORDS.some(k => n.includes(k));
+  if (isPI) {
+    subs.push('Pattern Interrupt');
+    if (n.includes('phone') || n.includes('phone axe')) subs.push('PI: Phone FX');
+    else if (n.includes('keyboard') || n.includes('kbh') || n.includes('final kbh')) subs.push('PI: Keyboard FX');
+    else if (/bulldozer|tank|steamroller|hydraulic|trex|t-rex/.test(n)) subs.push('PI: Vehicle/Heavy FX');
+    else subs.push('PI: Other FX');
+  }
   if (n.includes('bhumi')) subs.push('Bhumi Replication');
   if (n.includes('how to say this')) subs.push('How-to-say-this');
   if (n.includes('wa chat') || n.includes('whatsapp') || n.includes('wp chat')) subs.push('WhatsApp Chat');
