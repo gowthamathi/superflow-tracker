@@ -131,7 +131,10 @@ table.metrics tfoot tr { background: #fafafa; font-weight: 700; }
 
 .gridjs-wrapper { box-shadow: none; border-radius: 6px; border: 1px solid #e5e5e5; }
 .gridjs-table { font-size: 12px; }
-.gridjs-th { font-size: 11px; }
+.gridjs-th { font-size: 11px; white-space: normal !important; word-break: break-word; line-height: 1.3; vertical-align: middle; padding: 10px 6px !important; position: relative; }
+.gridjs-th-content { white-space: normal !important; overflow: visible !important; text-overflow: unset !important; float: none !important; margin-right: 14px; }
+.gridjs-th .gridjs-sort { float: none !important; position: absolute !important; right: 4px; top: 50%; transform: translateY(-50%); }
+.gridjs-td { white-space: normal !important; word-break: break-word; padding: 8px 6px !important; }
 
 .insight-card { display: flex; gap: 12px; margin-bottom: 10px; padding: 12px 14px; background: white; border: 1px solid #e5e5e5; border-radius: 6px; }
 .insight-card .marker { width: 4px; flex-shrink: 0; border-radius: 2px; }
