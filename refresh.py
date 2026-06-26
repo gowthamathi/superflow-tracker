@@ -120,6 +120,13 @@ def main():
     target_date = sys.argv[1] if len(sys.argv) > 1 else (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"Refreshing for date: {target_date}")
 
+    # When the install source (fb-ads MCP) was unavailable, normalize_cloud.py
+    # drops a marker. In that case we record installs as null (blank) for the
+    # day rather than a misleading 0 — the cloud Meta Ads MCP can't report them.
+    INSTALLS_MISSING = os.path.exists(os.path.join(BASE, ".installs_missing"))
+    if INSTALLS_MISSING:
+        print("  (installs source unavailable — recording installs as null for this day)")
+
     data = load_json(COMPACT)
 
     # ── 1. Update trend_account (append yesterday's daily row) ──────────
@@ -155,17 +162,18 @@ def main():
                     if r["date"] == date:
                         r["spend"] = round(day_total[date]["spend"], 2)
                         r["purchases"] = int(day_total[date]["purchases"])
-                        r["installs"] = int(day_total[date]["installs"])
+                        r["installs"] = None if INSTALLS_MISSING else int(day_total[date]["installs"])
                         r["cac"] = round(r["spend"] / r["purchases"], 2) if r["purchases"] > 0 else None
-                        r["cpi"] = round(r["spend"] / r["installs"], 2) if r["installs"] > 0 else None
+                        r["cpi"] = round(r["spend"] / r["installs"], 2) if r["installs"] else None
                         break
             else:
                 v = day_total[date]
-                s, p, i = round(v["spend"], 2), int(v["purchases"]), int(v["installs"])
+                s, p = round(v["spend"], 2), int(v["purchases"])
+                i = None if INSTALLS_MISSING else int(v["installs"])
                 data["trend_account"].append({
                     "date": date, "spend": s, "purchases": p, "installs": i,
                     "cac": round(s / p, 2) if p > 0 else None,
-                    "cpi": round(s / i, 2) if i > 0 else None,
+                    "cpi": round(s / i, 2) if i else None,
                 })
 
         data["trend_account"].sort(key=lambda r: r["date"])
@@ -179,11 +187,12 @@ def main():
             existing_lang_dates = {r["date"] for r in data["trend_by_language"][lang]}
             for date in sorted(dates.keys()):
                 v = dates[date]
-                s, p, i = round(v["spend"], 2), int(v["purchases"]), int(v["installs"])
+                s, p = round(v["spend"], 2), int(v["purchases"])
+                i = None if INSTALLS_MISSING else int(v["installs"])
                 row = {
                     "date": date, "spend": s, "purchases": p, "installs": i,
                     "cac": round(s / p, 2) if p > 0 else None,
-                    "cpi": round(s / i, 2) if i > 0 else None,
+                    "cpi": round(s / i, 2) if i else None,
                 }
                 if date in existing_lang_dates:
                     for r in data["trend_by_language"][lang]:
@@ -293,8 +302,10 @@ def main():
         print(f"  BUILD ERROR: {result.stderr}")
         sys.exit(1)
 
-    # Clean up raw files
-    for f in ["daily_raw.json", "ads_raw.json", "ads_created_raw.json"]:
+    # Clean up raw + cloud dump files and the installs marker
+    for f in ["daily_raw.json", "ads_raw.json", "ads_created_raw.json",
+              "cloud_campaigns.json", "cloud_ads.json", "cloud_ads_created.json",
+              "cloud_installs.json", ".installs_missing"]:
         path = os.path.join(BASE, f)
         if os.path.exists(path):
             os.remove(path)

@@ -652,7 +652,7 @@ function aggregateTrend(rows, gran) {
   rows.forEach(r => {
     const k = weekStartDate(r.date);
     if (!m[k]) m[k] = {date: k, spend:0, purchases:0, installs:0};
-    m[k].spend += r.spend; m[k].purchases += r.purchases; m[k].installs += r.installs;
+    m[k].spend += r.spend; m[k].purchases += r.purchases; m[k].installs += (r.installs||0);
   });
   return Object.values(m).sort((a,b) => a.date.localeCompare(b.date)).map(r => ({...r,
     cac: r.purchases ? r.spend/r.purchases : null,
