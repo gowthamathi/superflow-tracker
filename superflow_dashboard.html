@@ -180,8 +180,8 @@ table.metrics tfoot tr { background: #fafafa; font-weight: 700; }
     <span class="data-source-badge live" id="data-badge">Cache · May 24 → Jun 22</span>
   </div>
 
-  <div class="note" style="margin-bottom: 12px;">
-    <b>Cached dashboard.</b> Snapshot covers May 24 → Jun 22, 2026. Date selector filters this cached data client-side — no live API calls, no fetch errors. Headline KPIs, Languages table and Trends charts respect the selected date range. Campaigns, Themes, Variants and Creatives tabs always show the full 30-day aggregate (per-ad daily data isn't in the cache). To refresh: ask Claude to rebuild the snapshot. Production deploy will refresh automatically at 10am IST daily.
+  <div class="note" style="margin-bottom: 12px;" id="info-note">
+    <b>Cached dashboard.</b> Date selector filters this cached data client-side — no live API calls, no fetch errors. Headline KPIs, Languages table and Trends charts respect the selected date range (from daily account/language totals). Campaigns, Themes, Variants and Creatives tabs, plus per-creative counts, CTR and win-rate, reflect the full accumulated dataset (per-ad daily history isn't cached). To refresh: ask Claude to rebuild the snapshot. Production deploy refreshes automatically each morning.
   </div>
 
   <div class="error-banner" id="error-banner"></div>
@@ -736,7 +736,29 @@ function computeTrendSummary(trendRows) {
   };
 }
 
-function renderKPIs(summary, periodLabel) {
+// Per-language money summary for a date range, from daily trend_by_language rows.
+// This is the date-accurate source for the Languages table's spend/purchases/
+// installs/CAC/CPI/Pay columns (per-ad daily history isn't cached).
+function computeLangTrendSummaries(since, until) {
+  const res = {};
+  for (const L in (DATA.trend_by_language || {})) {
+    const rows = filterTrend(DATA.trend_by_language[L], since, until);
+    const t = rows.reduce((a, r) => ({
+      spend: a.spend + (r.spend || 0),
+      purchases: a.purchases + (r.purchases || 0),
+      installs: a.installs + (r.installs || 0)
+    }), {spend:0, purchases:0, installs:0});
+    res[L] = {
+      spend: t.spend, purchases: t.purchases, installs: t.installs,
+      cac: t.purchases ? t.spend/t.purchases : null,
+      cpi: t.installs ? t.spend/t.installs : null,
+      pay: t.installs ? 100*t.purchases/t.installs : null
+    };
+  }
+  return res;
+}
+
+function renderKPIs(summary, periodLabel, fullRange) {
   const periodSub = periodLabel || 'Selected period';
   const winCount = CURRENT_ADS.filter(a => a.cac != null && a.cac <= 300).length;
   const winRate = CURRENT_ADS.length > 0 ? (100 * winCount / CURRENT_ADS.length).toFixed(1) + '%' : '—';
@@ -748,20 +770,22 @@ function renderKPIs(summary, periodLabel) {
     {label:'CAC', value:fINR(summary.overall_cac), sub:'Target ≤ ₹300',
      cls: summary.overall_cac==null?'':(summary.overall_cac<=300?'target-ok':(summary.overall_cac<=400?'target-warn':'target-bad'))},
     {label:'CPI', value:fINR(summary.overall_cpi), sub:'Spend ÷ installs'},
-    {label:'Win Rate', value:winRate, sub:winCount+'/'+CURRENT_ADS.length+' ≤₹300',
+    {label:'Win Rate', value:winRate, sub:(fullRange?'':'all-time · ')+winCount+'/'+CURRENT_ADS.length+' ≤₹300',
      cls: parseFloat(winRate)>=30?'target-ok':(parseFloat(winRate)>=15?'target-warn':'target-bad')},
-    {label:'Creatives', value:fNum(CURRENT_ADS.length), sub:'Active period'}
+    {label:'Creatives', value:fNum(CURRENT_ADS.length), sub:fullRange?'Active period':'All-time total'}
   ];
   document.getElementById('kpi-strip').innerHTML = kpis.map(k =>
     `<div class="kpi ${k.cls||''}"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub">${k.sub}</div></div>`
   ).join('');
 }
 
-function renderLanguageTable(langs, summary) {
+// money = date-filtered account trend summary (spend/purchases/installs/cac/cpi/pay).
+// ads  = full-aggregate ad summary (per-ad columns: c2i, ctr, total_ads).
+function renderLanguageTable(langs, money, ads) {
   const tbody = document.querySelector('#language-table tbody');
   const tfoot = document.querySelector('#language-table tfoot');
-  const totalSpend = summary.total_spend, totalPurch = summary.total_purchases;
-  const baseCpi = summary.overall_cpi, basePay = summary.overall_pay, baseC2i = summary.overall_c2i;
+  const totalSpend = money.total_spend, totalPurch = money.total_purchases;
+  const baseCpi = money.overall_cpi, basePay = money.overall_pay, baseC2i = ads.overall_c2i;
   tbody.innerHTML = langs.map(L => `<tr>
     <td class="name">${L.language}</td>
     <td class="r">${fINR(L.spend)}</td>
@@ -784,15 +808,15 @@ function renderLanguageTable(langs, summary) {
     <td class="r">100%</td>
     <td class="r">${fNum(totalPurch)}</td>
     <td class="r">100%</td>
-    <td class="r">${fNum(summary.total_installs)}</td>
+    <td class="r">${fNum(money.total_installs)}</td>
     <td class="r"><span class="cell bg-grey">${fPct(baseC2i)}</span></td>
     <td class="r"><span class="cell bg-grey">${fPct(basePay)}</span></td>
-    <td class="r"><span class="${cellClass(summary.overall_cac, null, 'cac')}">${fINR(summary.overall_cac)}</span></td>
-    <td class="r"><span class="cell bg-grey">${fINR(summary.overall_cpi)}</span></td>
-    <td class="r">${summary.overall_ctr ? summary.overall_ctr.toFixed(2)+'%' : '—'}</td>
-    <td class="r">${summary.total_ads}</td>
+    <td class="r"><span class="${cellClass(money.overall_cac, null, 'cac')}">${fINR(money.overall_cac)}</span></td>
+    <td class="r"><span class="cell bg-grey">${fINR(money.overall_cpi)}</span></td>
+    <td class="r">${ads.overall_ctr ? ads.overall_ctr.toFixed(2)+'%' : '—'}</td>
+    <td class="r">${ads.total_ads}</td>
     <td class="r">${langs.reduce((s,L)=>s+L.ads_under_300_cac,0)}</td>
-    <td class="r">${summary.total_ads > 0 ? (100*langs.reduce((s,L)=>s+L.ads_under_300_cac,0)/summary.total_ads).toFixed(1)+'%' : '—'}</td>
+    <td class="r">${ads.total_ads > 0 ? (100*langs.reduce((s,L)=>s+L.ads_under_300_cac,0)/ads.total_ads).toFixed(1)+'%' : '—'}</td>
   </tr>`;
 }
 
@@ -1396,16 +1420,31 @@ let CURRENT_SUMMARY = computeSummary(DATA.ads);
 
 function renderAll() {
   destroyAllCharts();
-  // Universal date filter: derive ads from ad_weekly for the picked range
-  CURRENT_ADS = getAdsForDateRange(DATE_FILTER.since, DATE_FILTER.until);
+  const fullRange = (DATE_FILTER.since === SNAP_FIRST && DATE_FILTER.until === SNAP_LAST);
+
+  // Per-ad tabs (Campaigns, Themes, Variants, Creatives) and per-ad columns
+  // (CTR, creative counts, win-rate) use the full accumulated aggregate —
+  // per-ad daily history isn't cached, so these can't be sliced by date.
+  CURRENT_ADS = DATA.ads;
   CURRENT_SUMMARY = computeSummary(CURRENT_ADS);
 
-  const periodLabel = (DATE_FILTER.since === SNAP_FIRST && DATE_FILTER.until === SNAP_LAST)
-    ? 'Full snapshot' : (DATE_FILTER.since + ' → ' + DATE_FILTER.until);
-  renderKPIs(CURRENT_SUMMARY, periodLabel);
+  // Date-range-accurate money metrics come from the daily trend tables, which
+  // accumulate for the whole timeline (this is what the KPIs / Languages show).
+  const trendRows = filterTrend(DATA.trend_account, DATE_FILTER.since, DATE_FILTER.until);
+  const trendSummary = computeTrendSummary(trendRows);
+  const langTrend = computeLangTrendSummaries(DATE_FILTER.since, DATE_FILTER.until);
 
-  const langs = aggregateLanguages(CURRENT_ADS);
-  renderLanguageTable(langs, CURRENT_SUMMARY);
+  const periodLabel = fullRange
+    ? 'Full snapshot' : (DATE_FILTER.since + ' → ' + DATE_FILTER.until);
+  renderKPIs(trendSummary, periodLabel, fullRange);
+
+  // Languages: money columns from date-filtered trend, per-ad columns from full aggregate.
+  const langsFull = aggregateLanguages(CURRENT_ADS);
+  const langs = langsFull.map(Lf => {
+    const t = langTrend[Lf.language] || {spend:0, purchases:0, installs:0, cac:null, cpi:null, pay:null};
+    return {...Lf, spend:t.spend, purchases:t.purchases, installs:t.installs, cac:t.cac, cpi:t.cpi, pay:t.pay};
+  });
+  renderLanguageTable(langs, trendSummary, CURRENT_SUMMARY);
 
   const camps = aggregateCampaigns(CURRENT_ADS);
   renderCampaignTable(camps, CURRENT_SUMMARY);
@@ -1596,6 +1635,7 @@ document.getElementById('date-apply').addEventListener('click', () => {
     document.getElementById('date-since').value = SNAPSHOT.trend_account[0].date;
     document.getElementById('date-until').value = SNAPSHOT.trend_account[SNAPSHOT.trend_account.length-1].date;
     document.getElementById('cad-start').value = SNAPSHOT.trend_account[0].date;
+    setBadge(`Cache · ${SNAP_FIRST} → ${SNAP_LAST} (full snapshot)`, 'live');
   }
 })();
 
