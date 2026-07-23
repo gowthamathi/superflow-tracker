@@ -10,10 +10,11 @@ Cloud MCP quirks this handles:
   - int strings like "8,035"                        -> 8035
   - "Not available"                                 -> 0
   - omni_purchase is the purchase count (action_type "purchase")
-  - app installs are NOT exposed by the cloud MCP. If an installs source
-    file (cloud_installs.json) is present it is merged; otherwise a
-    ".installs_missing" marker is written so refresh.py records installs as
-    null (blank) for the day rather than a misleading 0.
+  - app installs: the cloud MCP now exposes `mobile_app_install` directly on
+    campaign/ad rows — when present it is used. An optional cloud_installs.json
+    (from the fb-ads MCP) still overrides if provided. If NO installs source is
+    available at all, a ".installs_missing" marker is written so refresh.py
+    records installs as null (blank) for the day rather than a misleading 0.
   - campaign name is resolved from campaign_id via the campaign-level dump
     (ad-level rows only carry campaign_id).
   - dates come back formatted ("June 25, 2026"); we stamp every row with the
@@ -112,6 +113,14 @@ def main():
         inst_ads = {str(k): parse_int(v) for k, v in inst.get("ads", {}).items()}
         installs_collected = True
 
+    # The cloud Meta Ads MCP now exposes `mobile_app_install` directly on
+    # campaign/ad rows. If the field is present in the dumps, installs are
+    # collected from the cloud (no separate cloud_installs.json needed).
+    cloud_has_installs = (any("mobile_app_install" in c for c in campaigns)
+                          or any("mobile_app_install" in a for a in ads))
+    if cloud_has_installs:
+        installs_collected = True
+
     # campaign_id -> campaign name (from campaign-level dump)
     cid_to_name = {str(c.get("id")): c.get("name", "") for c in campaigns}
 
@@ -122,6 +131,8 @@ def main():
         actions = [{"action_type": "purchase", "value": parse_int(c.get("actions:omni_purchase"))}]
         if cid in inst_campaigns:
             actions.append({"action_type": "mobile_app_install", "value": inst_campaigns[cid]})
+        elif "mobile_app_install" in c:
+            actions.append({"action_type": "mobile_app_install", "value": parse_int(c.get("mobile_app_install"))})
         daily_raw.append({
             "date_start": target_date,
             "campaign_name": c.get("name", ""),
@@ -137,6 +148,8 @@ def main():
         actions = [{"action_type": "purchase", "value": parse_int(a.get("actions:omni_purchase"))}]
         if aid in inst_ads:
             actions.append({"action_type": "mobile_app_install", "value": inst_ads[aid]})
+        elif "mobile_app_install" in a:
+            actions.append({"action_type": "mobile_app_install", "value": parse_int(a.get("mobile_app_install"))})
         ads_raw.append({
             "ad_id": aid,
             "ad_name": a.get("name", ""),
