@@ -128,7 +128,7 @@ def main():
     daily_raw = []
     for c in campaigns:
         cid = str(c.get("id"))
-        actions = [{"action_type": "purchase", "value": parse_int(c.get("actions:omni_purchase"))}]
+        actions = [{"action_type": "purchase", "value": parse_int(c.get("omni_purchase", c.get("actions:omni_purchase")))}]
         if cid in inst_campaigns:
             actions.append({"action_type": "mobile_app_install", "value": inst_campaigns[cid]})
         elif "mobile_app_install" in c:
@@ -145,7 +145,7 @@ def main():
     for a in ads:
         aid = str(a.get("id"))
         cid = str(a.get("campaign_id"))
-        actions = [{"action_type": "purchase", "value": parse_int(a.get("actions:omni_purchase"))}]
+        actions = [{"action_type": "purchase", "value": parse_int(a.get("omni_purchase", a.get("actions:omni_purchase")))}]
         if aid in inst_ads:
             actions.append({"action_type": "mobile_app_install", "value": inst_ads[aid]})
         elif "mobile_app_install" in a:
